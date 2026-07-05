@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+
+# Streamlit
+.streamlit/
+
+# Secrets — NEVER commit
+config.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Data
+*.csv
+data/
+
+# Example config (safe to commit)
+config.example.yaml
