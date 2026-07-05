@@ -124,10 +124,16 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_config(path: str = 'config.yaml') -> dict:
-    """Завантажує YAML-конфіг."""
+    """Завантажує YAML-конфіг. Якщо файл не знайдено — пробує config.example.yaml."""
     import yaml
-    with open(path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        # Пробуємо example.yaml (для Streamlit Cloud)
+        example = path.replace('.yaml', '.example.yaml').replace('.yml', '.example.yml')
+        with open(example, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
 
 
 def parse_binom_csv(file_or_path, config: Optional[dict] = None) -> pd.DataFrame:
