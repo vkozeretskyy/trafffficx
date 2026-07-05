@@ -21,6 +21,3 @@ Thumbs.db
 # Data
 *.csv
 data/
-
-# Example config (safe to commit)
-config.example.yaml

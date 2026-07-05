@@ -1,0 +1,86 @@
+# ============================================================
+# Traffic Dashboard — конфігурація (приклад)
+# Скопіюй цей файл у config.yaml і впиши свої значення
+# ============================================================
+
+thresholds:
+  cpa_max: 210
+  roi_min: 15
+  roi_negative: 0
+  reg2dep_min: 7
+
+kill_rules:
+  bad_cpa_days: 3
+  bad_roi_days: 2
+  min_spend_for_kill: 50
+
+scaling:
+  roi_scale_threshold: 20
+  budget_multiplier: 1.5
+  duplicates: 4
+  dup_budget: 20
+
+geo:
+  primary: TR
+  secondary:
+    - PT
+    - UK
+    - DE
+    - AU
+
+offer_types:
+  android:
+    label: "📱 Android App"
+    metrics:
+      - key: CPI
+        formula: cost / leads
+      - key: CPR
+        formula: cost / deps
+      - key: CPA
+        formula: cost / deps
+    decision_metric: CPI
+  pwa:
+    label: "🌐 PWA / Web"
+    metrics:
+      - key: CPL
+        formula: cost / leads
+      - key: CPA
+        formula: cost / deps
+    decision_metric: CPL
+  ios:
+    label: "🍏 iOS"
+    metrics:
+      - key: CPI
+        formula: cost / leads
+      - key: CPA
+        formula: cost / deps
+    decision_metric: CPI
+  other:
+    label: "📄 Інше"
+    metrics:
+      - key: CPL
+        formula: cost / leads
+      - key: CPA
+        formula: cost / deps
+    decision_metric: CPL
+
+type_detection:
+  android_keywords:
+    - "[android]"
+    - "android"
+  pwa_keywords:
+    - "[pwa]"
+    - "linki"
+    - "skak"
+    - "onetraf"
+  ios_keywords:
+    - "[ios]"
+    - "ios private"
+  other_keywords:
+    - "fanpage"
+
+binom_api:
+  base_url: "https://your-tracker.binom.org"
+  api_key: "your-api-key-here"
+  timezone: "Europe/Kyiv"
+  timeout: 30
