@@ -26,6 +26,10 @@ from utils.metrics import (
 from utils.alerts import check_alerts, alert_summary
 from utils.reporter import generate_tl_report, generate_action_plan
 from utils.binom_api import BinomAPIClient
+from utils.db import save_snapshot, load_history, get_trends, detect_trends, get_available_dates, get_campaign_trend
+import plotly.express as px
+import plotly.graph_objects as go
+import json
 
 
 # ============================================================
@@ -327,6 +331,14 @@ if df_raw is not None:
     alerts = check_alerts(df_active, cfg)
     alert_summ = alert_summary(alerts)
 
+    # Авто-збереження в історію
+    try:
+        n = save_snapshot(df_active, report_date)
+        if n > 0:
+            st.toast(f"💾 Збережено {n} кампаній в історію", icon="✅")
+    except Exception:
+        pass  # історія не критична для роботи
+
     # ============================================================
     # KPI-картки
     # ============================================================
@@ -369,7 +381,9 @@ if df_raw is not None:
         "🚨 Алерти",
         "📋 Звіт для ТЛ",
         "📅 План на сьогодні",
-        "📰 Новини"
+        "📰 Новини",
+        "📈 Тренди",
+        "💬 Чат з AI"
     ])
 
     # ----- Tab 1: Android App -----
@@ -582,6 +596,181 @@ if df_raw is not None:
                     st.divider()
         else:
             st.info("Не вдалося завантажити новини. Перевір підключення до інтернету.")
+
+    # ----- Tab 8: Тренди -----
+    with tab8:
+        st.subheader("📈 Тренди (історія)")
+
+        dates = get_available_dates()
+        if len(dates) < 2:
+            st.info("Недостатньо даних для трендів. Завантаж CSV за 2+ днів.")
+        else:
+            # Загальний графік ROI/спенду по днях
+            trends_df = get_trends(days=30)
+
+            if len(trends_df) > 1:
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=trends_df['snapshot_date'], y=trends_df['roi'],
+                        mode='lines+markers', name='ROI %',
+                        line=dict(color='green', width=2),
+                        fill='tozeroy', fillcolor='rgba(0,200,0,0.1)'
+                    ))
+                    fig.add_hline(y=0, line_dash="dash", line_color="red")
+                    fig.add_hline(y=20, line_dash="dot", line_color="blue",
+                                  annotation_text="ціль 20%")
+                    fig.update_layout(title="ROI по днях", height=300,
+                                      margin=dict(l=20, r=20, t=30, b=20))
+                    st.plotly_chart(fig, use_container_width=True, key="trend_roi")
+
+                with col2:
+                    fig2 = go.Figure()
+                    fig2.add_trace(go.Bar(
+                        x=trends_df['snapshot_date'], y=trends_df['total_cost'],
+                        name='Спенд', marker_color='steelblue'
+                    ))
+                    fig2.add_trace(go.Scatter(
+                        x=trends_df['snapshot_date'], y=trends_df['avg_cpa'],
+                        mode='lines+markers', name='CPA $', yaxis='y2',
+                        line=dict(color='orange', width=2)
+                    ))
+                    fig2.update_layout(
+                        title="Спенд + CPA по днях", height=300,
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        yaxis2=dict(overlaying='y', side='right')
+                    )
+                    st.plotly_chart(fig2, use_container_width=True, key="trend_spend")
+
+            # Тренди по кампаніях
+            st.subheader("🔍 Аномалії по кампаніях")
+            trend_alerts = detect_trends(days=14)
+
+            if trend_alerts:
+                for ta in trend_alerts:
+                    sev = ta['severity']
+                    icon = '🔴' if sev == 'red' else ('🟡' if sev == 'yellow' else '🟢')
+                    msg = f"{icon} **{ta['campaign']}** — {ta['message']}"
+                    if sev == 'red':
+                        st.error(msg)
+                    elif sev == 'yellow':
+                        st.warning(msg)
+                    else:
+                        st.success(msg)
+
+                # Детальний графік для проблемних
+                st.subheader("📉 Деталізація")
+                problem_campaigns = [ta['campaign'] for ta in trend_alerts if ta['severity'] in ('red', 'yellow')]
+                if problem_campaigns:
+                    selected = st.selectbox("Обери кампанію", problem_campaigns)
+                    if selected:
+                        cdf = get_campaign_trend(selected, days=14)
+                        if len(cdf) > 1:
+                            fig3 = go.Figure()
+                            fig3.add_trace(go.Scatter(
+                                x=cdf['snapshot_date'], y=cdf['roi'],
+                                mode='lines+markers', name='ROI %',
+                                line=dict(color='green' if cdf['roi'].iloc[-1] > 0 else 'red', width=3)
+                            ))
+                            fig3.update_layout(title=f"ROI: {selected}", height=300)
+                            st.plotly_chart(fig3, use_container_width=True, key="trend_detail")
+            else:
+                st.success("✅ Немає аномалій — усі тренди стабільні")
+
+    # ----- Tab 9: Чат з AI -----
+    with tab9:
+        st.subheader("💬 Чат з AI-асистентом")
+
+        llm_cfg = cfg.get('llm', {})
+        api_key = llm_cfg.get('api_key', '')
+
+        if not api_key or 'sk-your' in api_key:
+            st.warning("⚠️ Налаштуй LLM API-ключ у config.yaml → секція `llm`")
+            st.code("""
+llm:
+  api_key: "sk-твій-ключ-deepseek"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+            """)
+        else:
+            # Ініціалізація історії чату
+            if 'chat_messages' not in st.session_state:
+                st.session_state.chat_messages = []
+
+            # Контекст із даних
+            data_context = f"""
+            Поточні дані за {report_date}:
+            - Спенд: ${summary['total_cost']:,.0f}
+            - Revenue: ${summary['total_revenue']:,.0f}
+            - Profit: ${summary['profit']:,.0f}
+            - ROI: {summary['roi']:+.1f}%
+            - Активних кампаній: {summary['active_count']}
+            - Лідів: {summary['total_leads']:,}
+            - Депозитів: {summary['total_deps']:,}
+
+            Топ-3 за ROI:
+            """
+
+            top3 = top_campaigns_for_scale(df_active, cfg, top_n=3)
+            for _, r in top3.iterrows():
+                data_context += f"\n- {r.get('Name','?')}: ROI {r.get('ROI',0):.1f}%, спенд ${r.get('Cost',0):,.0f}"
+
+            worst = campaigns_to_kill(df_active, cfg, top_n=3)
+            if len(worst) > 0:
+                data_context += "\n\nНайгірші за ROI:"
+                for _, r in worst.iterrows():
+                    data_context += f"\n- {r.get('Name','?')}: ROI {r.get('ROI',0):.1f}%, спенд ${r.get('Cost',0):,.0f}"
+
+            # Відображення історії
+            for msg in st.session_state.chat_messages:
+                with st.chat_message(msg['role']):
+                    st.markdown(msg['content'])
+
+            # Ввід користувача
+            user_input = st.chat_input("Запитай про кампанії...")
+
+            if user_input:
+                st.session_state.chat_messages.append({'role': 'user', 'content': user_input})
+                with st.chat_message('user'):
+                    st.markdown(user_input)
+
+                with st.chat_message('assistant'):
+                    with st.spinner("Думаю..."):
+                        try:
+                            response = requests.post(
+                                f"{llm_cfg.get('base_url', 'https://api.deepseek.com')}/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {api_key}",
+                                    "Content-Type": "application/json"
+                                },
+                                json={
+                                    "model": llm_cfg.get('model', 'deepseek-chat'),
+                                    "messages": [
+                                        {"role": "system", "content": llm_cfg.get('system_prompt', 'Ти — AI-асистент медіабаєра.') + f"\n\nКонтекст:\n{data_context}"},
+                                        *[{"role": m['role'], "content": m['content']}
+                                          for m in st.session_state.chat_messages[-10:]]
+                                    ],
+                                    "temperature": 0.7,
+                                    "max_tokens": 800,
+                                },
+                                timeout=30
+                            )
+                            if response.status_code == 200:
+                                answer = response.json()['choices'][0]['message']['content']
+                                st.markdown(answer)
+                                st.session_state.chat_messages.append({'role': 'assistant', 'content': answer})
+                            else:
+                                err = response.text[:300]
+                                st.error(f"❌ Помилка API: {response.status_code} — {err}")
+                        except Exception as e:
+                            st.error(f"❌ Помилка: {e}")
+
+            # Кнопка очистити чат
+            if st.button("🗑 Очистити чат"):
+                st.session_state.chat_messages = []
+                st.rerun()
 
 else:
     # Порожній стан — дві колонки: інфо + новини

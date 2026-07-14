@@ -84,3 +84,14 @@ binom_api:
   api_key: "your-api-key-here"
   timezone: "Europe/Kyiv"
   timeout: 30
+
+# ------------------------------------------------------------
+# AI-чат (LLM API)
+# ------------------------------------------------------------
+llm:
+  api_key: "sk-your-deepseek-key"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  system_prompt: |
+    Ти — AI-асистент медіабаєра в гемблінг-вертикалі.
+    Аналізуєш рекламні кампанії, даєш поради що масштабувати/вимикати.
